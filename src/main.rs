@@ -1,4 +1,4 @@
-#![allow(unused)]
+#![allow(unused, non_snake_case)]
 use itertools::Itertools;
 use my_lib::*;
 use procon_input::*;
@@ -55,6 +55,7 @@ impl Sim {
     fn new() -> Self {
         // TODO: impl input
         let input = Input::read();
+        dbg!(input.clone());
         Sim { input }
     }
 
@@ -106,14 +107,53 @@ impl Sim {
 
 #[derive(Debug, Clone)]
 pub struct Input {
-    n: usize,
+    T: usize,
+    H: usize,
+    W: usize,
+    i0: usize,
+    h_mat: Vec<Vec<usize>>,
+    v_mat: Vec<Vec<usize>>,
+    K: usize,
+    SD_vec: Vec<(usize, usize)>,
 }
 
 impl Input {
     fn read() -> Self {
-        let n = read_u();
+        let (T, H, W, i0) = read_uuuu();
 
-        Input { n }
+        let mut h_mat = vec![vec![0; W]; H];
+        for h in 0..H - 1 {
+            let h_vec = read_string_as_chars();
+            for w in 0..W {
+                h_mat[h][w] = h_vec[w].to_digit(10).unwrap() as usize;
+            }
+        }
+
+        let mut v_mat = vec![vec![0; W]; H];
+        for h in 0..H {
+            let v_vec = read_string_as_chars();
+            for w in 0..W - 1 {
+                v_mat[h][w] = v_vec[w].to_digit(10).unwrap() as usize;
+            }
+        }
+
+        let K = read_u();
+        let mut SD_vec = vec![];
+        for _ in 0..K {
+            let (s, d) = read_uu();
+            SD_vec.push((s, d));
+        }
+
+        Input {
+            T,
+            H,
+            W,
+            i0,
+            h_mat,
+            v_mat,
+            K,
+            SD_vec,
+        }
     }
 }
 
