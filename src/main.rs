@@ -1,8 +1,9 @@
-#![allow(unused, non_snake_case)]
+#![allow(unused, non_snake_case, unused_macros)]
 use itertools::Itertools;
 use my_lib::*;
-use procon_input::*;
+use proconio::{input, marker::*};
 use rand::prelude::*;
+use rand_distr::{Bernoulli, Normal, Uniform};
 use rand_pcg::Mcg128Xsl64;
 use std::{
     cell::RefCell,
@@ -19,7 +20,30 @@ use std::{
 fn main() {
     let start_time = my_lib::time::update();
 
-    Sim::new().run();
+    if std::env::args().len() != 2 {
+        eprintln!(
+            "Usage: {} <input> <output>",
+            std::env::args().nth(0).unwrap()
+        );
+        return;
+    }
+    let in_file = std::env::args().nth(1).unwrap();
+    let input = std::fs::read_to_string(&in_file).unwrap_or_else(|_| {
+        eprintln!("no such file: {}", in_file);
+        std::process::exit(1)
+    });
+
+    let input = parse_input(&input);
+    // let (score, err) = match out {
+    //     Ok(out) => compute_score(&input, &out),
+    //     Err(err) => (0, err),
+    // };
+    // println!("Score = {}", score);
+    // if err.len() > 0 {
+    //     println!("{}", err);
+    // }
+
+    Sim::new(input.clone()).run();
 
     let end_time = my_lib::time::update();
     let duration = end_time - start_time;
@@ -52,9 +76,8 @@ pub struct Sim {
 }
 
 impl Sim {
-    fn new() -> Self {
+    fn new(input: Input) -> Self {
         // TODO: impl input
-        let input = Input::read();
         dbg!(input.clone());
         Sim { input }
     }
@@ -64,115 +87,9 @@ impl Sim {
         let mut cnt = 0 as usize; // 試行回数
 
         //let mut initial_state = State::new();
-        let mut best_output = Output::new();
-        let mut best_state = State::new();
-        best_state.compute_score();
 
-        'outer: loop {
-            let current_time = my_lib::time::update();
-            if current_time >= my_lib::time::LIMIT {
-                break;
-            }
-
-            cnt += 1;
-
-            let mut output = Output::new();
-
-            // A:近傍探索
-            let mut state: State = best_state.clone();
-            state.change(&mut output, &mut rng);
-
-            // B:壊して再構築
-            // best_outputの一部を破壊して、それまでのoutputを使ってstateを作り直して再構築したり
-            // outputの変形
-            // best_output.remove(&mut output, &mut rng);
-            // let mut state: State = initial_state.clone();
-            // stateを新outputの情報で復元
-            // そこから続きやる
-
-            // スコア計算
-            state.compute_score();
-
-            // 状態更新
-            solver::mountain(&mut best_state, &state, &mut best_output, &output);
-            //solver::simulated_annealing(&mut best_state, &state, &mut best_output, &output, self.current_time, &mut rng);
-        }
-
-        best_output.submit();
-
-        eprintln!("{} ", cnt);
-        eprintln!("{} ", best_state.score);
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct Input {
-    T: usize,
-    H: usize,
-    W: usize,
-    i0: usize,
-    h_mat: Vec<Vec<usize>>,
-    v_mat: Vec<Vec<usize>>,
-    K: usize,
-    SD_vec: Vec<(usize, usize)>,
-}
-
-impl Input {
-    fn read() -> Self {
-        let (T, H, W, i0) = read_uuuu();
-
-        let mut h_mat = vec![vec![0; W]; H];
-        for h in 0..H - 1 {
-            let h_vec = read_string_as_chars();
-            for w in 0..W {
-                h_mat[h][w] = h_vec[w].to_digit(10).unwrap() as usize;
-            }
-        }
-
-        let mut v_mat = vec![vec![0; W]; H];
-        for h in 0..H {
-            let v_vec = read_string_as_chars();
-            for w in 0..W - 1 {
-                v_mat[h][w] = v_vec[w].to_digit(10).unwrap() as usize;
-            }
-        }
-
-        let K = read_u();
-        let mut SD_vec = vec![];
-        for _ in 0..K {
-            let (s, d) = read_uu();
-            SD_vec.push((s, d));
-        }
-
-        Input {
-            T,
-            H,
-            W,
-            i0,
-            h_mat,
-            v_mat,
-            K,
-            SD_vec,
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct Output {
-    //score: usize,
-}
-
-impl Output {
-    fn new() -> Self {
-        Output {}
-    }
-
-    fn remove(&self, output: &mut Self, rng: &mut Mcg128Xsl64) {
-        // https://atcoder.jp/contests/ahc014/submissions/35567589 L558
-    }
-
-    fn submit(&self) {
-        //println!("{}", );
+        // eprintln!("{} ", cnt);
+        // eprintln!("{} ", best_state.score);
     }
 }
 
@@ -549,4 +466,300 @@ mod procon_input {
         //! abcd -> \[a, b, c, d]
         read_block::<String>().chars().collect::<Vec<char>>()
     }
+}
+
+#[derive(Clone, Debug)]
+pub struct Input {
+    pub T: usize,
+    pub H: usize,
+    pub W: usize,
+    pub i0: usize,         // 0-based
+    pub h: Vec<Vec<bool>>, // 水路の有無　横
+    pub v: Vec<Vec<bool>>, // 水路の有無　縦
+    pub K: usize,          // 作物の種類数
+    pub S: Vec<usize>,     // 1-based  作物kはS[k]月までに植える
+    pub D: Vec<usize>,     // 1-based　作物kはD[k]月に収穫する
+}
+
+impl Input {
+    pub fn is_valid_point(&self, x: usize, y: usize) -> bool {
+        x < self.H && y < self.W
+    }
+}
+
+impl std::fmt::Display for Input {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "{} {} {} {}", self.T, self.H, self.W, self.i0)?;
+        for h in &self.h {
+            writeln!(
+                f,
+                "{}",
+                h.iter()
+                    .map(|&b| if b { '1' } else { '0' })
+                    .collect::<String>()
+            )?;
+        }
+        for v in &self.v {
+            writeln!(
+                f,
+                "{}",
+                v.iter()
+                    .map(|&b| if b { '1' } else { '0' })
+                    .collect::<String>()
+            )?;
+        }
+        writeln!(f, "{}", self.K)?;
+        for k in 0..self.K {
+            writeln!(f, "{} {}", self.S[k], self.D[k])?;
+        }
+        Ok(())
+    }
+}
+
+pub fn parse_input(f: &str) -> Input {
+    let mut f = proconio::source::once::OnceSource::from(f);
+    input! {
+        from &mut f,
+        T: usize,
+        H: usize,
+        W: usize,
+        i0: usize,
+        h1: [Chars; H - 1],
+        v1: [Chars; H],
+        K: usize,
+        SD: [(usize, usize); K],
+    }
+    let h = h1
+        .iter()
+        .map(|i| i.iter().map(|&b| b == '1').collect())
+        .collect();
+    let v = v1
+        .iter()
+        .map(|i| i.iter().map(|&b| b == '1').collect())
+        .collect();
+    let S = SD.iter().map(|x| x.0).collect();
+    let D = SD.iter().map(|x| x.1).collect();
+    Input {
+        T,
+        H,
+        W,
+        i0,
+        h,
+        v,
+        K,
+        S,
+        D,
+    }
+}
+
+fn read<T: Copy + PartialOrd + std::fmt::Display + std::str::FromStr>(
+    token: Option<&str>,
+    lb: T,
+    ub: T,
+) -> Result<T, String> {
+    if let Some(v) = token {
+        if let Ok(v) = v.parse::<T>() {
+            if v < lb || ub < v {
+                Err(format!("Out of range: {}", v))
+            } else {
+                Ok(v)
+            }
+        } else {
+            Err(format!("Parse error: {}", v))
+        }
+    } else {
+        Err("Unexpected EOF".to_owned())
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct Output {
+    pub M: usize,
+    pub works: Vec<Work>,
+}
+
+#[derive(Clone, Debug)]
+pub struct Work {
+    pub k: usize, // 0-based
+    pub i: usize, // 0-based
+    pub j: usize, // 0-based
+    pub s: usize, // 1-based
+}
+
+impl Output {
+    pub fn new() -> Self {
+        Output {
+            M: 0,
+            works: Vec::new(),
+        }
+    }
+
+    pub fn validate(&self, input: &Input) -> Result<(), String> {
+        // check range
+        for Work {
+            k, i: _, j: _, s, ..
+        } in self.works.iter().cloned()
+        {
+            let ub = input.S[k];
+            if s > ub {
+                return Err(format!("Cannot plant crop {} after month {}", k + 1, ub));
+            }
+        }
+
+        // check duplicates
+        {
+            let mut items = BTreeSet::new();
+            for Work { k, .. } in self.works.iter() {
+                if !items.insert(*k) {
+                    return Err(format!("Crop {} is planted more than once", k + 1));
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+pub fn compute_score(input: &Input, out: &Output) -> (i64, String) {
+    if let Err(msg) = out.validate(input) {
+        return (0, msg);
+    }
+
+    let mut scheduled_works: Vec<Vec<Work>> = vec![vec![]; input.T + 1];
+    for w in out.works.iter().cloned() {
+        scheduled_works[w.s].push(w)
+    }
+
+    let mut workspace = vec![vec![None; input.W]; input.H];
+    let adj = {
+        let mut adj = vec![vec![Vec::new(); input.W]; input.H];
+        for i in 0..input.H {
+            for j in 0..input.W {
+                if i + 1 < input.H && !input.h[i][j] {
+                    adj[i + 1][j].push((i, j));
+                    adj[i][j].push((i + 1, j));
+                }
+                if j + 1 < input.W && !input.v[i][j] {
+                    adj[i][j + 1].push((i, j));
+                    adj[i][j].push((i, j + 1))
+                }
+            }
+        }
+        adj
+    };
+
+    let si = input.i0;
+    let sj = 0;
+    let start = (si, sj);
+    let mut score = 0;
+
+    for t in 1..=input.T {
+        // beginning of month t
+        {
+            // check reachability
+            if !scheduled_works[t].is_empty() {
+                let mut visited = vec![vec![false; input.W]; input.H];
+
+                if workspace[si][sj].is_none() {
+                    let mut q = VecDeque::new();
+                    q.push_back(start);
+                    visited[si][sj] = true;
+
+                    while !q.is_empty() {
+                        let Some((x, y)) = q.pop_front() else { unreachable!() };
+                        assert!(workspace[x][y].is_none());
+                        for (x1, y1) in adj[x][y].iter().cloned() {
+                            if input.is_valid_point(x1, y1)
+                                && workspace[x1][y1].is_none()
+                                && !visited[x1][y1]
+                            {
+                                q.push_back((x1, y1));
+                                visited[x1][y1] = true;
+                            }
+                        }
+                    }
+                }
+
+                for &Work { k, i, j, .. } in &scheduled_works[t] {
+                    if !visited[i][j] {
+                        return (
+                            0,
+                            format!(
+                                "{} is scheduled at unreachable position {}, {}",
+                                k + 1,
+                                i,
+                                j
+                            ),
+                        );
+                    }
+                }
+            }
+
+            // update workspace
+            for &Work { k, i, j, s, .. } in &scheduled_works[t] {
+                if let Some((k1, _)) = workspace[i][j] {
+                    return (
+                        0,
+                        format!("Block ({}, {}) is occupied by crop {}", i, j, k1 + 1),
+                    );
+                } else {
+                    workspace[i][j] = Some((k, s))
+                }
+            }
+        }
+
+        // end of month t; harvest crops
+        let can_start = {
+            if let Some((k, _s)) = workspace[si][sj] {
+                input.D[k] == t
+            } else {
+                true
+            }
+        };
+
+        if can_start {
+            let mut q = VecDeque::new();
+            q.push_back(start);
+            let mut visited = vec![vec![false; input.W]; input.H];
+            visited[si][sj] = true;
+
+            while !q.is_empty() {
+                let Some((i, j)) = q.pop_front() else { unreachable!() };
+                if let Some((k, s)) = workspace[i][j] {
+                    if input.D[k] == t {
+                        workspace[i][j] = None;
+                        let span = t - s + 1;
+                        // this should hold because we do not
+                        // allow planting crop k after month S[k]
+                        assert!(span >= input.D[k] - input.S[k] + 1);
+                        score += input.D[k] - input.S[k] + 1;
+                    } else if input.D[k] < t {
+                        return (
+                            0,
+                            format!("Cannot harvest crop {} in month {}", k + 1, input.D[k]),
+                        );
+                    }
+                }
+
+                for &(i1, j1) in &adj[i][j] {
+                    assert!(input.is_valid_point(i1, j1));
+                    let is_blocked = {
+                        if let Some((k, _s)) = workspace[i1][j1] {
+                            input.D[k] > t
+                        } else {
+                            false
+                        }
+                    };
+                    if !is_blocked && !visited[i1][j1] {
+                        q.push_back((i1, j1));
+                        visited[i1][j1] = true;
+                    }
+                }
+            }
+        }
+    }
+
+    (
+        ((score as u64 * 1_000_000) as f64 / (input.H * input.W * input.T) as f64).round() as i64,
+        String::new(),
+    )
 }
