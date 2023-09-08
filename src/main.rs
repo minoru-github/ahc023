@@ -1,6 +1,7 @@
 #![allow(unused, non_snake_case, unused_macros)]
 use itertools::Itertools;
 use my_lib::*;
+use num_integer::Integer;
 use proconio::{input, marker::*};
 use rand::prelude::*;
 use rand_distr::{Bernoulli, Normal, Uniform};
@@ -50,34 +51,45 @@ fn main() {
 #[derive(Debug, Clone)]
 struct Land {
     space_area_mat: Vec<Vec<(usize, usize)>>, // 各点が属する領域の面積(h方向, w方向)
-                                              // space: Vec<Vec<usize>>, // 各点が属する領域の番号
+    space_id: Vec<Vec<i32>>,                  // 各点が属する領域の番号
 }
 
 impl Land {
     fn new(H: usize, W: usize) -> Self {
         let space_area_mat = vec![vec![(0, 0); W]; H];
+        let space_id = vec![vec![-1; W]; H];
 
-        Land { space_area_mat }
+        Land {
+            space_area_mat,
+            space_id,
+        }
     }
 
     fn compute_area(&mut self, input: &Input) {
         // w方向
-        for h in 0..input.H {
+        for i in 0..input.H {
             let mut cnt = 1;
-            for w in 0..=input.W - 2 {
-                self.space_area_mat[h][w].1 = cnt;
-                if !input.is_water_tate[h][w] {
+
+            // もし出入口が横にあるなら強制的にpathにするためにcnt高めにする
+            if input.i0 == i {
+                cnt = input.H * input.W;
+            }
+
+            for j in 0..=input.W - 2 {
+                self.space_area_mat[i][j].1 = cnt;
+                if !input.is_water_tate[i][j] {
                     cnt += 1;
                 } else {
                     cnt = 1;
                 }
+                cnt = min(cnt, input.H * input.W);
             }
-            self.space_area_mat[h][input.W - 1].1 = cnt;
+            self.space_area_mat[i][input.W - 1].1 = cnt;
 
             // 逆方向に探索し、最も大きいで更新する
-            for w in (0..=input.W - 2).rev() {
-                if !input.is_water_tate[h][w] {
-                    self.space_area_mat[h][w].1 = self.space_area_mat[h][w + 1].1;
+            for j in (0..=input.W - 2).rev() {
+                if !input.is_water_tate[i][j] {
+                    self.space_area_mat[i][j].1 = self.space_area_mat[i][j + 1].1;
                 }
             }
         }
@@ -86,12 +98,18 @@ impl Land {
         for w in 0..input.W {
             let mut cnt = 1;
             for h in 0..=input.H - 2 {
+                // もし出入口が横にあるなら強制的にpathにするためにcnt高めにする
+                if input.i0 == h && w == 0 {
+                    cnt = input.H * input.W;
+                }
+
                 self.space_area_mat[h][w].0 = cnt;
                 if !input.is_water_yoko[h][w] {
                     cnt += 1;
                 } else {
                     cnt = 1;
                 }
+                cnt = min(cnt, input.H * input.W);
             }
             self.space_area_mat[input.H - 1][w].0 = cnt;
 
@@ -103,16 +121,98 @@ impl Land {
             }
         }
 
-        //self.debug();
+        self.debug_space_area();
     }
 
-    fn debug(&self) {
+    fn debug_space_area(&self) {
+        println!("★space_area_mat★");
         for h in 0..self.space_area_mat.len() {
             for w in 0..self.space_area_mat[0].len() {
                 print!(
-                    "({}, {}) ",
+                    "({}, {});",
                     self.space_area_mat[h][w].0, self.space_area_mat[h][w].1
                 );
+            }
+            println!();
+        }
+    }
+
+    fn decide_space_id(&mut self, input: &Input) {
+        let mut space_id = 0;
+        for i in 0..input.H {
+            for j in 0..input.W {
+                if self.space_id[i][j] == -1 {
+                    self.group_same_area((i, j), space_id, input);
+                    space_id += 1;
+                }
+            }
+        }
+        self.debug_space_id();
+    }
+
+    fn group_same_area(&mut self, (i, j): (usize, usize), id: i32, input: &Input) {
+        let mut q = VecDeque::new();
+        q.push_back((i, j));
+        self.space_id[i][j] = id;
+
+        while !q.is_empty() {
+            let (h, w) = q.pop_front().unwrap();
+            for (dh, dw) in [(0, 1), (0, -1), (1, 0), (-1, 0)].iter() {
+                let (h1, w1) = (h as i32 + dh, w as i32 + dw);
+                if h1 < 0 || h1 >= input.H as i32 || w1 < 0 || w1 >= input.W as i32 {
+                    continue;
+                }
+                let (h1, w1) = (h1 as usize, w1 as usize);
+                if self.space_id[h1][w1] != -1 {
+                    continue;
+                }
+
+                if self.space_area_mat[h][w] == self.space_area_mat[h1][w1] {
+                    match (dh, dw) {
+                        (0, 1) => {
+                            if !input.is_water_tate[h][w] {
+                                self.space_id[h1][w1] = self.space_id[h][w];
+                                q.push_back((h1, w1));
+                            }
+                        }
+                        (0, -1) => {
+                            if !input.is_water_tate[h1][w1] {
+                                self.space_id[h1][w1] = self.space_id[h][w];
+                                q.push_back((h1, w1));
+                            }
+                        }
+                        (1, 0) => {
+                            if !input.is_water_yoko[h][w] {
+                                self.space_id[h1][w1] = self.space_id[h][w];
+                                q.push_back((h1, w1));
+                            }
+                        }
+                        (-1, 0) => {
+                            if !input.is_water_yoko[h1][w1] {
+                                self.space_id[h1][w1] = self.space_id[h][w];
+                                q.push_back((h1, w1));
+                            }
+                        }
+                        _ => unreachable!(),
+                    }
+                } else {
+                    let max_len = max(self.space_area_mat[h][w].0, self.space_area_mat[h][w].1);
+                    let max_len1 =
+                        max(self.space_area_mat[h1][w1].0, self.space_area_mat[h1][w1].1);
+                    if max_len == max_len1 && max_len == input.H * input.W {
+                        self.space_id[h1][w1] = self.space_id[h][w];
+                        q.push_back((h1, w1));
+                    }
+                }
+            }
+        }
+    }
+
+    fn debug_space_id(&self) {
+        println!("★space_id★");
+        for i in 0..self.space_id.len() {
+            for j in 0..self.space_id[0].len() {
+                print!("{};", self.space_id[i][j]);
             }
             println!();
         }
@@ -157,6 +257,7 @@ impl Sim {
 
         let mut land = Land::new(self.input.H, self.input.W);
         land.compute_area(&self.input);
+        land.decide_space_id(&self.input);
 
         //let mut initial_state = State::new();
 
