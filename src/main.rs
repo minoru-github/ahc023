@@ -20,20 +20,17 @@ use std::{
 fn main() {
     let start_time = my_lib::time::update();
 
-    if std::env::args().len() != 2 {
-        eprintln!(
-            "Usage: {} <input> <output>",
-            std::env::args().nth(0).unwrap()
-        );
-        return;
-    }
-    let in_file = std::env::args().nth(1).unwrap();
-    let input = std::fs::read_to_string(&in_file).unwrap_or_else(|_| {
-        eprintln!("no such file: {}", in_file);
-        std::process::exit(1)
-    });
+    let input = if std::env::args().len() >= 2 {
+        let in_file = std::env::args().nth(1).unwrap();
+        let input = std::fs::read_to_string(&in_file).unwrap_or_else(|_| {
+            eprintln!("no such file: {}", in_file);
+            std::process::exit(1)
+        });
+        parse_input(&input)
+    } else {
+        read_input()
+    };
 
-    let input = parse_input(&input);
     // let (score, err) = match out {
     //     Ok(out) => compute_score(&input, &out),
     //     Err(err) => (0, err),
@@ -48,6 +45,78 @@ fn main() {
     let end_time = my_lib::time::update();
     let duration = end_time - start_time;
     eprintln!("{:?} ", duration);
+}
+
+#[derive(Debug, Clone)]
+struct Land {
+    space_area_mat: Vec<Vec<(usize, usize)>>, // 各点が属する領域の面積(h方向, w方向)
+                                              // space: Vec<Vec<usize>>, // 各点が属する領域の番号
+}
+
+impl Land {
+    fn new(H: usize, W: usize) -> Self {
+        let space_area_mat = vec![vec![(0, 0); W]; H];
+
+        Land { space_area_mat }
+    }
+
+    fn compute_area(&mut self, input: &Input) {
+        // w方向
+        for h in 0..input.H {
+            let mut cnt = 1;
+            for w in 0..=input.W - 2 {
+                self.space_area_mat[h][w].1 = cnt;
+                if !input.is_water_tate[h][w] {
+                    cnt += 1;
+                } else {
+                    cnt = 1;
+                }
+            }
+            self.space_area_mat[h][input.W - 1].1 = cnt;
+
+            // 逆方向に探索し、最も大きいで更新する
+            for w in (0..=input.W - 2).rev() {
+                if !input.is_water_tate[h][w] {
+                    self.space_area_mat[h][w].1 = self.space_area_mat[h][w + 1].1;
+                }
+            }
+        }
+
+        // h方向
+        for w in 0..input.W {
+            let mut cnt = 1;
+            for h in 0..=input.H - 2 {
+                self.space_area_mat[h][w].0 = cnt;
+                if !input.is_water_yoko[h][w] {
+                    cnt += 1;
+                } else {
+                    cnt = 1;
+                }
+            }
+            self.space_area_mat[input.H - 1][w].0 = cnt;
+
+            // 逆方向に探索し、最も大きいで更新する
+            for h in (0..=input.H - 2).rev() {
+                if !input.is_water_yoko[h][w] {
+                    self.space_area_mat[h][w].0 = self.space_area_mat[h + 1][w].0;
+                }
+            }
+        }
+
+        //self.debug();
+    }
+
+    fn debug(&self) {
+        for h in 0..self.space_area_mat.len() {
+            for w in 0..self.space_area_mat[0].len() {
+                print!(
+                    "({}, {}) ",
+                    self.space_area_mat[h][w].0, self.space_area_mat[h][w].1
+                );
+            }
+            println!();
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -78,13 +147,16 @@ pub struct Sim {
 impl Sim {
     fn new(input: Input) -> Self {
         // TODO: impl input
-        dbg!(input.clone());
+        //dbg!(input.clone());
         Sim { input }
     }
 
     pub fn run(&mut self) {
         let mut rng: Mcg128Xsl64 = rand_pcg::Pcg64Mcg::new(890482);
         let mut cnt = 0 as usize; // 試行回数
+
+        let mut land = Land::new(self.input.H, self.input.W);
+        land.compute_area(&self.input);
 
         //let mut initial_state = State::new();
 
@@ -473,12 +545,12 @@ pub struct Input {
     pub T: usize,
     pub H: usize,
     pub W: usize,
-    pub i0: usize,         // 0-based
-    pub h: Vec<Vec<bool>>, // 水路の有無　横
-    pub v: Vec<Vec<bool>>, // 水路の有無　縦
-    pub K: usize,          // 作物の種類数
-    pub S: Vec<usize>,     // 1-based  作物kはS[k]月までに植える
-    pub D: Vec<usize>,     // 1-based　作物kはD[k]月に収穫する
+    pub i0: usize,                     // 0-based
+    pub is_water_yoko: Vec<Vec<bool>>, // 水路の有無　横 オリジナルではh
+    pub is_water_tate: Vec<Vec<bool>>, // 水路の有無　縦 オリジナルではv
+    pub K: usize,                      // 作物の種類数
+    pub S: Vec<usize>,                 // 1-based  作物kはS[k]月までに植える
+    pub D: Vec<usize>,                 // 1-based　作物kはD[k]月に収穫する
 }
 
 impl Input {
@@ -490,7 +562,7 @@ impl Input {
 impl std::fmt::Display for Input {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "{} {} {} {}", self.T, self.H, self.W, self.i0)?;
-        for h in &self.h {
+        for h in &self.is_water_yoko {
             writeln!(
                 f,
                 "{}",
@@ -499,7 +571,7 @@ impl std::fmt::Display for Input {
                     .collect::<String>()
             )?;
         }
-        for v in &self.v {
+        for v in &self.is_water_tate {
             writeln!(
                 f,
                 "{}",
@@ -529,11 +601,11 @@ pub fn parse_input(f: &str) -> Input {
         K: usize,
         SD: [(usize, usize); K],
     }
-    let h = h1
+    let is_water_yoko = h1
         .iter()
         .map(|i| i.iter().map(|&b| b == '1').collect())
         .collect();
-    let v = v1
+    let is_water_tate = v1
         .iter()
         .map(|i| i.iter().map(|&b| b == '1').collect())
         .collect();
@@ -544,8 +616,42 @@ pub fn parse_input(f: &str) -> Input {
         H,
         W,
         i0,
-        h,
-        v,
+        is_water_yoko,
+        is_water_tate,
+        K,
+        S,
+        D,
+    }
+}
+
+pub fn read_input() -> Input {
+    input! {
+        T: usize,
+        H: usize,
+        W: usize,
+        i0: usize,
+        h1: [Chars; H - 1],
+        v1: [Chars; H],
+        K: usize,
+        SD: [(usize, usize); K],
+    }
+    let is_water_yoko = h1
+        .iter()
+        .map(|i| i.iter().map(|&b| b == '1').collect())
+        .collect();
+    let is_water_tate = v1
+        .iter()
+        .map(|i| i.iter().map(|&b| b == '1').collect())
+        .collect();
+    let S = SD.iter().map(|x| x.0).collect();
+    let D = SD.iter().map(|x| x.1).collect();
+    Input {
+        T,
+        H,
+        W,
+        i0,
+        is_water_yoko,
+        is_water_tate,
         K,
         S,
         D,
@@ -634,11 +740,11 @@ pub fn compute_score(input: &Input, out: &Output) -> (i64, String) {
         let mut adj = vec![vec![Vec::new(); input.W]; input.H];
         for i in 0..input.H {
             for j in 0..input.W {
-                if i + 1 < input.H && !input.h[i][j] {
+                if i + 1 < input.H && !input.is_water_yoko[i][j] {
                     adj[i + 1][j].push((i, j));
                     adj[i][j].push((i + 1, j));
                 }
-                if j + 1 < input.W && !input.v[i][j] {
+                if j + 1 < input.W && !input.is_water_tate[i][j] {
                     adj[i][j + 1].push((i, j));
                     adj[i][j].push((i, j + 1))
                 }
