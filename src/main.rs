@@ -147,7 +147,6 @@ impl Land {
                 }
             }
         }
-        self.debug_space_id();
     }
 
     fn group_same_area(&mut self, (i, j): (usize, usize), id: i32, input: &Input) {
@@ -217,6 +216,61 @@ impl Land {
             println!();
         }
     }
+
+    fn decide_path(&mut self, input: &Input) {
+        let path_id = -1; //(input.H * input.W) as i32;
+        for i in 0..input.H {
+            for j in 0..input.W {
+                for (dh, dw) in [(0, 1), (0, -1), (1, 0), (-1, 0)].iter() {
+                    let (h1, w1) = (i as i32 + dh, j as i32 + dw);
+                    if h1 < 0 || h1 >= input.H as i32 || w1 < 0 || w1 >= input.W as i32 {
+                        continue;
+                    }
+                    let (h1, w1) = (h1 as usize, w1 as usize);
+
+                    match (dh, dw) {
+                        (0, 1) => {
+                            if !input.is_water_tate[i][j] {
+                                if (self.space_area_mat[i][j].0 > self.space_area_mat[h1][w1].0)
+                                    || (self.space_area_mat[i][j].1 > self.space_area_mat[h1][w1].1)
+                                {
+                                    self.space_id[i][j] = path_id;
+                                }
+                            }
+                        }
+                        (0, -1) => {
+                            if !input.is_water_tate[h1][w1] {
+                                if (self.space_area_mat[i][j].0 > self.space_area_mat[h1][w1].0)
+                                    || (self.space_area_mat[i][j].1 > self.space_area_mat[h1][w1].1)
+                                {
+                                    self.space_id[i][j] = path_id;
+                                }
+                            }
+                        }
+                        (1, 0) => {
+                            if !input.is_water_yoko[i][j] {
+                                if (self.space_area_mat[i][j].0 > self.space_area_mat[h1][w1].0)
+                                    || (self.space_area_mat[i][j].1 > self.space_area_mat[h1][w1].1)
+                                {
+                                    self.space_id[i][j] = path_id;
+                                }
+                            }
+                        }
+                        (-1, 0) => {
+                            if !input.is_water_yoko[h1][w1] {
+                                if (self.space_area_mat[i][j].0 > self.space_area_mat[h1][w1].0)
+                                    || (self.space_area_mat[i][j].1 > self.space_area_mat[h1][w1].1)
+                                {
+                                    self.space_id[i][j] = path_id;
+                                }
+                            }
+                        }
+                        _ => unreachable!(),
+                    }
+                }
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -258,6 +312,8 @@ impl Sim {
         let mut land = Land::new(self.input.H, self.input.W);
         land.compute_area(&self.input);
         land.decide_space_id(&self.input);
+        land.decide_path(&self.input);
+        land.debug_space_id();
 
         //let mut initial_state = State::new();
 
