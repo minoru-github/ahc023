@@ -1,0 +1,1 @@
+cargo run --release --features visualize input.txt > output.txt
